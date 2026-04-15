@@ -1,0 +1,10 @@
+1. Go to https://httpbin.org/forms/post
+2. Type "Jane Doe" into the customer name field
+3. Type "555-1234" into the telephone field
+4. Type "jane@example.com" into the email field
+5. Select "Medium" for the pizza size
+6. Check the "mushroom" topping
+7. Check the "cheese" topping
+8. Type "No onions please" into the delivery instructions
+9. Wait 2 seconds to review the form
+10. Click the Submit button

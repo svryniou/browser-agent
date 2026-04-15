@@ -1,0 +1,17 @@
+# Normalise all text files to LF in the repo; let the OS check out its own endings.
+* text=auto eol=lf
+
+# Explicitly LF — source files that must never get CRLF
+*.ts   text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.env* text eol=lf
+
+# Binary — never touch line endings
+*.png  binary
+*.webm binary
+*.ico  binary

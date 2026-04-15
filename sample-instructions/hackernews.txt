@@ -1,0 +1,10 @@
+1. Go to https://news.ycombinator.com
+2. Click on the "new" link in the top navigation
+3. Wait 2 seconds for the page to load
+4. Scroll down slowly to browse the listings
+5. Click on the first article title
+6. Wait for the page to load
+7. Go back to Hacker News
+8. Click on the "ask" link in the top navigation
+9. Wait 2 seconds
+10. Scroll down to see the questions

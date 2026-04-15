@@ -1,0 +1,35 @@
+{
+  "name": "browser-agent",
+  "version": "1.0.0",
+  "description": "Automate browser sessions from plain-English instructions with AI and record them as video",
+  "main": "dist/index.js",
+  "bin": {
+    "browser-agent": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "chalk": "^4.1.2",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.50.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+output/
+.env
+*.webm
+*.png
+.claude
+coverage/
+.nyc_output/
+
