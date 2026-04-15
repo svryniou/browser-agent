@@ -1,7 +1,8 @@
 1. Go to https://www.rready.com
-2. If a cookies banner appears, click Accept
+2. If a cookies banner appears, click Accept or dismiss it. If there is no Accept button, skip this step.
 3. Move cursor to Solutions
 4. Then click "Innovation Management"
 5. Scroll down over "Lead Innovation with confidence"
 6. Click "Book a demo"
+7. Wait 1 second
 

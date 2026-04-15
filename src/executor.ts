@@ -38,14 +38,14 @@ async function moveMouse(page: Page, tx: number, ty: number): Promise<void> {
   const sy = mouseY;
   const dist = Math.hypot(tx - sx, ty - sy);
   if (dist < 2) return;
-  const steps = Math.max(8, Math.min(25, Math.round(dist / 15)));
+  const steps = Math.max(5, Math.min(12, Math.round(dist / 25)));
   for (let i = 1; i <= steps; i++) {
     const t = easeInOut(i / steps);
     await page.mouse.move(
       Math.round(sx + (tx - sx) * t),
       Math.round(sy + (ty - sy) * t),
     );
-    await new Promise(r => setTimeout(r, 16)); // ~60 fps
+    await new Promise(r => setTimeout(r, 10)); // fast but still eased
   }
   mouseX = tx;
   mouseY = ty;
@@ -140,15 +140,25 @@ export async function runSession(steps: ParsedStep[], config: Config): Promise<S
         if (isReal) {
           logger.info(`New tab (${url}) — redirecting to current tab for continuous recording`);
           await newPage.close().catch(() => {});
-          await pageRef.current.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          // Navigate in its own try/catch so a goto failure never assigns
+          // the already-closed newPage to pageRef.current.
+          try {
+            await pageRef.current.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          } catch (gotoErr) {
+            logger.warn(`Could not redirect new tab to current tab: ${gotoErr instanceof Error ? gotoErr.message : String(gotoErr)}`);
+            // pageRef.current keeps pointing to the original (still-open) page.
+          }
         } else {
-          // Can't determine URL — fall back to using the new tab
+          // Can't determine URL — fall back to using the new tab (it's still open).
           logger.info('New tab detected — switching focus');
           pageRef.current = newPage;
         }
       } catch (err) {
         logger.warn(`New tab handling: ${err instanceof Error ? err.message : String(err)}`);
-        pageRef.current = newPage;
+        // Only switch to newPage if it is still alive. If we already called
+        // newPage.close() above and the error came from goto(), newPage is closed
+        // and assigning it would break all subsequent page operations.
+        try { await newPage.title(); pageRef.current = newPage; } catch { /* keep current page */ }
       }
     });
     // ────────────────────────────────────────────────────────────────────────
@@ -390,6 +400,9 @@ async function executeAction(
       const { locator } = await findElement(page, action.selector, action.description || '', config.timeout);
       await smoothMoveTo(page, locator);
       await locator.click({ timeout: config.timeout });
+      // Wait for any navigation the click may have triggered (same-tab or via
+      // the new-tab redirect handler). Resolves immediately when page is stable.
+      await page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
       break;
     }
 
@@ -424,7 +437,7 @@ async function executeAction(
       const vp = page.viewportSize() ?? { width: 1280, height: 720 };
       await moveMouse(page, Math.round(vp.width / 2), Math.round(vp.height / 2));
       await page.mouse.wheel(0, deltaY);
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 100));
       break;
     }
 
@@ -443,9 +456,16 @@ async function executeAction(
     case 'hover': {
       const desc = action.description || action.selector;
       logger.actionIntermediate(`hover "${desc}"`);
-      const { locator } = await findElement(page, action.selector, action.description || '', config.timeout);
+      // For hover, skip the AI's CSS selector and rely purely on description-based
+      // matching. AI-generated nth-of-type selectors are brittle and often point to
+      // the wrong nav/menu item. Text/role matching on the description is far more
+      // reliable for finding the actual target element.
+      const hoverSelector = action.description ? '__skip_css__' : action.selector;
+      const { locator } = await findElement(page, hoverSelector, action.description || '', config.timeout);
       await smoothMoveTo(page, locator);
       await locator.hover({ timeout: config.timeout });
+      // Wait for dropdown/flyout menus to open before the next step reads the page
+      await new Promise(r => setTimeout(r, 600));
       break;
     }
 

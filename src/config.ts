@@ -40,7 +40,7 @@ export function buildConfig(options: {
     resolution,
     record: options.record ?? true,
     verbose: options.verbose ?? false,
-    stepPause: parseInt(options.stepPause || process.env.BROWSER_AGENT_STEP_PAUSE || '200', 10),
+    stepPause: parseInt(options.stepPause || process.env.BROWSER_AGENT_STEP_PAUSE || '0', 10),
     startStep: parseInt(options.startStep || '1', 10),
     stopOnError: options.stopOnError ?? false,
     userAgent: options.userAgent,

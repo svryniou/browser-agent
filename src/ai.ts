@@ -3,11 +3,11 @@ import { Action, AIResponse, PageContext, StepSummary, TokenUsage } from './type
 import { formatContextForPrompt } from './context';
 import { logger } from './logger';
 
-const SYSTEM_PROMPT = `You are a browser automation assistant. You receive a natural language
+const SYSTEM_PROMPT = `OUTPUT RULE: Respond with ONLY raw JSON — no markdown fences, no explanation text, no preamble, no trailing commentary. A single character of non-JSON text will break the system.
+
+You are a browser automation assistant. You receive a natural language
 instruction and the current page state (URL, title, visible elements).
 Return a JSON response describing exactly what Playwright should do.
-
-Respond ONLY with valid JSON. No markdown fences, no explanation.
 
 Return either a single action object or an array of action objects if
 the instruction implies multiple sub-steps (e.g., "search for X" =
@@ -52,6 +52,19 @@ Rules:
   match from the available elements and explain your choice in description
 - For search flows: use "type" (not "fill") + press Enter, to trigger
   search suggestions and JS handlers
+- HOVER RULE: For hover actions, always target the most specific leaf element
+  that has the matching text/label — an <a>, <button>, or element with
+  role="button"/"link"/"menuitem". NEVER use a parent container (<nav>, <ul>,
+  <div>, <section>, <header>) for hover. Example: to hover "Solutions" in a
+  nav bar, pick the <a> or <button> whose text is "Solutions", not the <nav>.
+- DESCRIPTION RULE: In the description field, name only the element itself
+  (e.g. "Solutions link") — never include verbs like "Hovering over" or
+  prepositions like "over", "to", "on". This is used to locate the element.
+- SCREENSHOT RULE: NEVER use the screenshot action as an intermediate step or
+  to verify a condition. Only use screenshot if the instruction explicitly says
+  "take a screenshot" or "screenshot". For conditional instructions like
+  "if X appears, do Y": check the page elements list directly — if X is present
+  in the elements, perform Y immediately without taking a screenshot first.
 - If you genuinely cannot determine what to do, return:
   { "action": "unknown", "reason": "<why>" }`;
 
@@ -110,26 +123,45 @@ export class AIClient {
       logger.verbose(`History entries: ${stepHistory.length}`);
     }
 
-    // Retry with exponential backoff on API errors
+    // Two-tier retry strategy:
+    //  1) API errors: exponential backoff (network, rate-limit, etc.)
+    //  2) JSON parse errors: immediate single retry using assistant-prefill
+    //     technique — send the assistant's turn starting with '{', which forces
+    //     Haiku to continue with a valid JSON object instead of English prose.
+    //     This stays entirely within the AI call and avoids the expensive
+    //     step-level retry (screenshot + page re-extraction).
     let lastError: Error | null = null;
+    let jsonRetried = false;
+
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) {
+      const usePrefill = jsonRetried && attempt > 0;
+
+      if (attempt > 0 && !usePrefill) {
+        // API error backoff
         const delay = Math.pow(2, attempt - 1) * 1000;
         await new Promise(r => setTimeout(r, delay));
         logger.retry(attempt, `API error: ${lastError?.message}`);
       }
 
       try {
+        const messages: Anthropic.MessageParam[] = [
+          { role: 'user', content: userContent },
+        ];
+        // Prefill forces the model to open with '{' → must produce a JSON object.
+        if (usePrefill) messages.push({ role: 'assistant', content: '{' });
+
         const response = await this.client.messages.create({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1024,
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 512,
           system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: userContent }],
+          messages,
         });
 
-        const rawResponse = response.content[0].type === 'text'
+        const rawText = response.content[0].type === 'text'
           ? response.content[0].text
           : '';
+        // Re-attach the prefill character so the parser sees complete JSON.
+        const rawResponse = usePrefill ? '{' + rawText : rawText;
 
         if (verbose) {
           logger.verbose('--- AI RESPONSE ---');
@@ -149,13 +181,25 @@ export class AIClient {
           `tokens: ${usage.promptTokens} prompt / ${usage.completionTokens} completion`
         );
 
-        const actions = parseActionsFromJSON(rawResponse);
+        try {
+          const actions = parseActionsFromJSON(rawResponse);
+          return { actions, rawResponse, usage };
+        } catch (parseErr) {
+          // First JSON failure: retry immediately with prefill, no backoff.
+          if (!jsonRetried) {
+            jsonRetried = true;
+            lastError = parseErr instanceof Error ? parseErr : new Error(String(parseErr));
+            continue;
+          }
+          // Second JSON failure (with prefill): escalate to step-level retry.
+          throw parseErr;
+        }
 
-        return { actions, rawResponse, usage };
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
 
-        // Don't retry on JSON parse errors from our own code
+        // JSON_PARSE_ERROR that slipped through (e.g. second prefill failure) —
+        // let the step-level retry handle it, don't do more API retries.
         if (lastError.message.startsWith('JSON_PARSE_ERROR:')) {
           throw lastError;
         }
@@ -189,8 +233,11 @@ export class AIClient {
 export function parseActionsFromJSON(raw: string): Action[] {
   let text = raw.trim();
 
-  // Strip markdown fences if Claude added them despite instructions
-  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  // Strip markdown fences if Claude added them despite instructions.
+  // Also remove any explanatory text that appears after the closing fence.
+  text = text.replace(/^```(?:json)?\s*/i, ''); // remove leading fence
+  text = text.replace(/```[\s\S]*$/, '');        // remove closing fence + anything after
+  text = text.trim();
 
   let parsed: unknown;
   try {
@@ -220,7 +267,7 @@ export function parseActionsFromJSON(raw: string): Action[] {
 
 /**
  * Compute estimated cost for display.
- * Using claude-sonnet-4 pricing: $3/M input, $15/M output (approximate).
+ * Using claude-sonnet-4-6 pricing: $3/M input, $15/M output (approximate).
  */
 export function estimateCost(usage: TokenUsage): string {
   const inputCost = (usage.promptTokens / 1_000_000) * 3.0;

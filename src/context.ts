@@ -199,7 +199,7 @@ export async function extractPageContext(page: Page): Promise<PageContext> {
   });
 
   scored.sort((a, b) => b.score - a.score);
-  const limited: ElementInfo[] = scored.slice(0, 200).map(s => s.el as ElementInfo);
+  const limited: ElementInfo[] = scored.slice(0, 120).map(s => s.el as ElementInfo);
 
   // Get text snapshot of visible content
   const textSnapshot = await page.evaluate(() => {
@@ -221,7 +221,7 @@ export async function extractPageContext(page: Page): Promise<PageContext> {
     title,
     viewport,
     elements: limited,
-    textSnapshot: textSnapshot.slice(0, 2000),
+    textSnapshot: textSnapshot.slice(0, 800),
   };
 }
 
